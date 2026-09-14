@@ -1,0 +1,45 @@
+name: push probe (throwaway)
+
+on: workflow_dispatch
+
+permissions: {}
+
+jobs:
+  probe:
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Probe pushes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          W=$(git log -1 --format=%H -- .github/workflows/push-probe.yaml)
+          P=$(git rev-parse "$W^")
+          try() {
+            if out=$(git push "$remote" "$2" 2>&1); then
+              echo "RESULT $1: PASS"
+            else
+              echo "RESULT $1: FAIL"
+              echo "$out" | grep -E "refusing|rejected|error" || echo "$out"
+            fi
+          }
+          # A: new branch at the default-branch tip (release-track's first run)
+          try "A new branch at tip" "$(git rev-parse HEAD):refs/heads/push-probe-a"
+          # B: new branch at the commit before the workflow change
+          try "B new branch at W^" "$P:refs/heads/push-probe-b"
+          # C: fast-forward that branch across the workflow change (the H1 case)
+          try "C fast-forward W^ -> W" "$W:refs/heads/push-probe-b"
+          # D: new tag at W^ (older commit whose workflows differ from the tip)
+          try "D new tag at W^" "$P:refs/tags/push-probe-d"
+          # Cleanup; ignore errors
+          for ref in refs/heads/push-probe-a refs/heads/push-probe-b refs/tags/push-probe-d; do
+            git push "$remote" ":$ref" > /dev/null 2>&1 || true
+          done
