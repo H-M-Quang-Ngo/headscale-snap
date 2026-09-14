@@ -15,14 +15,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Probe pushes
+      - name: Probe pushes (case E - fast-forward across a MODIFIED workflow file)
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           remote="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
-          W=$(git log -1 --format=%H -- .github/workflows/push-probe.yaml)
-          P=$(git rev-parse "$W^")
+          # Fixed commits on the fork's main: a5ae5fd modifies .github/workflows/release-instructions.yaml
+          # and its parent is 7b2099b (Python-only change).
+          BEFORE=$(git rev-parse 7b2099b)
+          AFTER=$(git rev-parse a5ae5fd)
+          git diff --name-status "$BEFORE" "$AFTER"
           try() {
             if out=$(git push "$remote" "$2" 2>&1); then
               echo "RESULT $1: PASS"
@@ -31,15 +34,10 @@ jobs:
               echo "$out" | grep -E "refusing|rejected|error" || echo "$out"
             fi
           }
-          # A: new branch at the default-branch tip (release-track's first run)
-          try "A new branch at tip" "$(git rev-parse HEAD):refs/heads/push-probe-a"
-          # B: new branch at the commit before the workflow change
-          try "B new branch at W^" "$P:refs/heads/push-probe-b"
-          # C: fast-forward that branch across the workflow change (the H1 case)
-          try "C fast-forward W^ -> W" "$W:refs/heads/push-probe-b"
-          # D: new tag at W^ (older commit whose workflows differ from the tip)
-          try "D new tag at W^" "$P:refs/tags/push-probe-d"
+          try "E1 new branch at 7b2099b" "$BEFORE:refs/heads/push-probe-e"
+          try "E2 fast-forward 7b2099b -> a5ae5fd (M workflow)" "$AFTER:refs/heads/push-probe-e"
+          try "E3 new tag at 7b2099b" "$BEFORE:refs/tags/push-probe-e"
           # Cleanup; ignore errors
-          for ref in refs/heads/push-probe-a refs/heads/push-probe-b refs/tags/push-probe-d; do
+          for ref in refs/heads/push-probe-e refs/tags/push-probe-e; do
             git push "$remote" ":$ref" > /dev/null 2>&1 || true
           done
